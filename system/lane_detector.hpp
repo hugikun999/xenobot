@@ -27,12 +27,12 @@ using namespace std;
 #define BOARD_HEIGHT 4.0
 
 /* Lane parameters */
-#define L_W 5.0 //cm
-#define L_Y 2.5
-#define W 16.5
+#define L_W 5.6//4.8 //cm
+#define L_Y 2.4
+#define W 17
 
 /* Car parameter */
-#define CAMERA_TO_CENTER 10.0 //cm
+#define CAMERA_TO_CENTER 17.0 //cm
 
 /* Historgram filter parameters */
 #define DELTA_PHI 2.0 //degree
@@ -43,12 +43,12 @@ using namespace std;
 #define D_MAX (+25.0)
 #define HISTOGRAM_R_SIZE (int)((PHI_MAX - PHI_MIN) / DELTA_PHI) //phi
 #define HISTOGRAM_C_SIZE (int)((D_MAX - D_MIN) / DELTA_D) //d
-#define HISTOGRAM_FILTER_THRESHOLD (vote_count / 3)
+#define HISTOGRAM_FILTER_THRESHOLD (vote_count / 5)
 
 /* Lane detector parameter */
 #define CANNY_THRESHOLD_1 50
 #define CANNY_THRESHOLD_2 200
-#define HOUGH_THRESHOLD 50
+#define HOUGH_THRESHOLD 25
 #define SIDE_DETECT_PIXEL_CNT 20
 #define SIDE_DETECT_THREDHOLD 14
 

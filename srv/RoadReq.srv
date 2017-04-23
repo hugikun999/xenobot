@@ -1,0 +1,5 @@
+string name
+int16 type
+---
+int16 mode
+bool success

@@ -5,15 +5,10 @@
 
 #include <ros/ros.h>
 
-#define THROTTLE_BASE 35 //35% of the throttle
+#define THROTTLE_BASE 40 //35% of the throttle
 
 using namespace std;
 
-enum ControllerMode {
-	JOYSTICK_MODE,
-	SELF_DRIVING_MODE,
-	STOP_MODE
-};
 
 typedef struct {
 	float kp, ki, kd;

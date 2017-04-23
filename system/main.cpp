@@ -11,6 +11,7 @@
 #include <ros/ros.h>
 #include <std_srvs/Trigger.h>
 #include <xenobot/SendHsv.h>
+#include "xenobot/RoadReq.h"
 
 #include "queue.hpp"
 
@@ -21,6 +22,8 @@
 #include "controller.hpp"
 #include "camera.hpp"
 #include "apriltags_detector.hpp"
+#include "server.hpp"
+#include "FSM.hpp"
 
 using namespace cv;
 
@@ -33,8 +36,13 @@ bool joystick_triggered;
 ros::Time joystick_trigger_time;
 
 //JOYSTICK_MODE, SELF_DRIVING_MODE, STOP_MODE
-int mode = SELF_DRIVING_MODE; //JOYSTICK_MODE
+//int mode = SELF_DRIVING_MODE; //JOYSTICK_MODE
+FSM *fsm;
+ros::NodeHandle *nh;
+extern int motor_forward_count;
+
 bool calibrate_mode = false;
+string machine_name;
 
 ros::Publisher raw_image_publisher;
 ros::Publisher distort_image_publisher;
@@ -71,7 +79,7 @@ void threshold_setting_callback(const xenobot::threshold_setting& threshold_sett
 
 void wheel_command_callback(const xenobot::wheel_command& wheel_msg)
 {
-	if(mode == JOYSTICK_MODE) {
+	if(fsm->mode == JOYSTICK_MODE) {
 		set_motor_pwm(wheel_msg.left_pwm, wheel_msg.right_pwm);
 
 		joystick_triggered = true;
@@ -106,15 +114,6 @@ bool send_hsv_threshold(xenobot::SendHsv::Request &req,xenobot::SendHsv::Respons
 void load_yaml_parameter()
 {
 	ros::NodeHandle nh;
-
-	/* Read ROS parameters */
-	string machine_name;
-	if(nh.getParam("machine_name", machine_name) == false) {
-		ROS_INFO("Abort: no machine name assigned!");
-		ROS_INFO("you may try:");
-		ROS_INFO("roslaunch xenobot activate_controller veh:=machine_name");
-		return;
-	}
 
 	string yaml_path;
 	if(nh.getParam("config_path", yaml_path) == false) {
@@ -176,24 +175,23 @@ void self_driving_thread_handler()
 
 	while(1) {
 
-		if(mode == STOP_MODE){
+		if(fsm->mode == STOP_MODE){
 			halt_motor();
 			std::this_thread::yield();
 			continue;
 		}
-
 		raw_image_queue.pop(frame);
 
 		cv::Mat distort_image;
 
 		cv::undistort(frame, distort_image, camera_matrix, distort_coffecient);
 
-#if 0
+#if 1
 		sensor_msgs::ImagePtr raw_img_msg =
-			cv_bridge::CvImage(std_msgs::Header(), "bgr8", frame).toImageMsg();
+			cv_bridge::CvImage(std_msgs::Header(), "rgb8", frame).toImageMsg();
 
 		sensor_msgs::ImagePtr distort_img_msg =
-			cv_bridge::CvImage(std_msgs::Header(), "bgr8", distort_image).toImageMsg();
+			cv_bridge::CvImage(std_msgs::Header(), "rgb8", distort_image).toImageMsg();
 
 		raw_image_publisher.publish(raw_img_msg);
 		distort_image_publisher.publish(distort_img_msg);
@@ -204,7 +202,7 @@ void self_driving_thread_handler()
 		bool get_pose = lane_detector->lane_estimate(distort_image, d, phi);
 
 		/* Joystick mode */
-		if(mode == JOYSTICK_MODE) {
+		if(fsm->mode == JOYSTICK_MODE) {
 			handle_joystick();
 			continue;
 		}
@@ -216,6 +214,7 @@ void self_driving_thread_handler()
 
 		/* PID controller */
 		if(get_pose == true) {
+			motor_forward_count = 0;
 			self_driving_controller(d, phi);
 		} else {
 			forward_motor();
@@ -234,6 +233,7 @@ void apriltags_detector_handler()
 
     cv::Mat image;
     cv::Mat image_gray;
+    int last_id = -1;
 
     while(1)
     {
@@ -241,18 +241,52 @@ void apriltags_detector_handler()
         raw_image_queue.front(image);
         apriltags_id = detector.processImage(image, image_gray);
 
+	if(apriltags_id <0 || last_id == apriltags_id) {
+		continue;
+ 	}
+	last_id = apriltags_id;
+
         switch(apriltags_id)
         {
-            case 0:
-                mode = STOP_MODE;
-                break;
+            case 1: {//lock
 
+                ros::ServiceClient client = nh->serviceClient<xenobot::RoadReq>("/server/road_req");
+
+                xenobot::RoadReq srv;
+                srv.request.name = machine_name;//TODO
+                srv.request.type = LOCK;
+                if(client.call(srv)) {
+                        //next
+                        fsm->next(srv.response.mode);
+                        ROS_INFO("tried LOCKED\n");
+                } else {
+                        ROS_ERROR("Fail to call service");
+                }
+                break;
+            }
+
+            case 2: {//unlock 
+		
+                ros::ServiceClient client = nh->serviceClient<xenobot::RoadReq>("/server/road_req");
+
+            	xenobot::RoadReq srv;
+            	srv.request.name = machine_name;//TODO
+		srv.request.type = REL;
+            	if(client.call(srv)) {
+			//next
+			//fsm.next(srv.response.mode);
+                    	ROS_INFO("UNLOCKED\n");
+            	} else {
+            		ROS_ERROR("Fail to call service ");
+		}
+		break;
+            }
             default:
-                mode = SELF_DRIVING_MODE;
+                //mode = SELF_DRIVING_MODE;
                 break;
         }
 
-        cout << "Motor mode: " << mode << "\n";
+       //cout << "Motor mode: " << mode << "\n";
 
 
 
@@ -278,9 +312,19 @@ int main(int argc, char* argv[])
         ros::Time::init();
         ros::Rate loop_rate(30);
 
-	ros::NodeHandle node("xenobot");
+	ros::NodeHandle node;
+	nh = &node;
+	fsm = new FSM();
 
-	if(!node.getParam("/calibrate", calibrate_mode)) 
+	/* Read ROS parameters */
+        if(node.getParam("machine_name", machine_name) == false) {
+                ROS_INFO("Abort: no machine name assigned!");
+                ROS_INFO("you may try:");
+                ROS_INFO("roslaunch xenobot activate_controller veh:=machine_name");
+                return 1;;
+        }
+
+	if(!node.getParam("calibrate", calibrate_mode)) 
 		ROS_INFO("Fail to get calibration mode,use \"true\" instead of \"1\".");
 
 	if(calibrate_mode){
@@ -308,14 +352,14 @@ int main(int argc, char* argv[])
 	/* Camera initialization */
 	if(!camera_setup(camera)) {
 		ROS_INFO("Abort: failed to open pi camera!");
-		return 0;
+		return 1;
 	}
 
 	/* Threads */
 	thread self_driving_thread(self_driving_thread_handler);
 	thread camera_thread(camera_thread_handler);
 	thread ros_spin_thread(ros_spin_thread_handler);
-	thread apriltags_detector_thread(apriltags_detector_handler);
+	//thread apriltags_detector_thread(apriltags_detector_handler);
 
 	pause();
 

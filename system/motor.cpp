@@ -6,12 +6,13 @@
 #include "motor.hpp"
 #include "controller.hpp"
 
-#define L298N_IN1 0
-#define L298N_IN2 1
-#define L298N_IN3 4
-#define L298N_IN4 26
+#define L298N_IN1 23 //left wheel -
+#define L298N_IN2 22 //left wheel +
+#define L298N_IN3 25 //right wheel -
+#define L298N_IN4 24 //right wheel +
 
 int motor_pwm_bias;
+int motor_forward_count = 0;
 
 bool read_motor_calibration(string _yaml_path)
 {
@@ -44,9 +45,9 @@ void motor_init()
 	softPwmCreate(L298N_IN2, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
 	softPwmCreate(L298N_IN4, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
 
-	//digitalWrite(L298N_IN4, LOW);
+	digitalWrite(L298N_IN4, LOW);
 	digitalWrite(L298N_IN3, LOW);
-	//digitalWrite(L298N_IN2, LOW);
+	digitalWrite(L298N_IN2, LOW);
 	digitalWrite(L298N_IN1, LOW);
 }
 
@@ -77,5 +78,10 @@ void halt_motor()
 
 void forward_motor()
 {
-	set_motor_pwm((int8_t)30, (int8_t)30);
+	if(motor_forward_count <5) {
+		set_motor_pwm((int8_t)THROTTLE_BASE, (int8_t)THROTTLE_BASE);
+		motor_forward_count++;
+	} else {
+		halt_motor();
+	}
 }

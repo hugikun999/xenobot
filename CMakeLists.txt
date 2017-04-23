@@ -28,6 +28,9 @@ add_message_files(
 add_service_files(
 	FILES
 	SendHsv.srv
+	RegNode.srv
+	RoadReq.srv
+	ModeSwitch.srv
 )
 
 generate_messages(DEPENDENCIES std_msgs)
@@ -127,9 +130,24 @@ set(
     ./system/motor.cpp
     ./system/camera.cpp
 	./system/apriltags_detector.cpp
+    ./system/FSM.cpp
 )
 
 include_directories(${catkin_INCLUDE_DIRS}  ${OpenCV_INCLUDE_DIRS} ${XENOBOT_INC})
 add_executable(activate_controller ${XENOBOT_SRC})
 target_link_libraries (activate_controller ${OpenCV_LIBRARIES} ${catkin_LIBRARIES} -lwiringPi yaml-cpp raspicam_cv raspicam)
 add_dependencies(activate_controller ${PROJECT_NAME}_generate_messages_cpp)
+
+########################################################################################
+#Image Capture
+
+add_executable(image_capture tools/image_capture.cpp)
+target_link_libraries (image_capture ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} )
+
+###############################################################################
+# City Server
+include_directories(${catkin_INCLUDE_DIRS})
+add_executable(server system/server.cpp)
+target_link_libraries (server ${catkin_LIBRARIES} yaml-cpp)
+add_dependencies(server ${PROJECT_NAME}_generate_messages_cpp)
+

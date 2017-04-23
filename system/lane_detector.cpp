@@ -24,6 +24,7 @@
 using namespace std;
 using namespace cv;
 
+
 LaneDetector::LaneDetector(string _yaml_path, bool calibrate_mode) :
 	outer_threshold(0,255,0,255,0,255),inner_threshold(0,255,0,255,0,255)
 {
@@ -36,28 +37,28 @@ LaneDetector::LaneDetector(string _yaml_path, bool calibrate_mode) :
 
 	if(calibrate_mode == true) {
         	outer_threshold_img_publisher =
-			node.advertise<sensor_msgs::Image>("xenobot/outer_threshold_image", 10);
+			node.advertise<sensor_msgs::Image>("outer_threshold_image", 10);
 
        		canny_img_publisher =
-			node.advertise<sensor_msgs::Image>("xenobot/canny_image", 10);
+			node.advertise<sensor_msgs::Image>("canny_image", 10);
 
        		inner_threshold_img_publisher =
-			node.advertise<sensor_msgs::Image>("xenobot/inner_threshold_image", 10);
+			node.advertise<sensor_msgs::Image>("inner_threshold_image", 10);
 
 	        marked_image_publisher =
-			node.advertise<sensor_msgs::Image>("xenobot/marked_image", 10);
+			node.advertise<sensor_msgs::Image>("marked_image", 10);
 
 		bird_view_img_publisher = 
-			node.advertise<sensor_msgs::Image>("xenobot/bird_view_image", 10);
+			node.advertise<sensor_msgs::Image>("bird_view_image", 10);
 
 		histogram_publisher =
-			node.advertise<xenobot::segmentArray>("/xenobot/segment_data", 10);
+			node.advertise<xenobot::segmentArray>("segment_data", 10);
 
 		pose_d_publisher =
-			node.advertise<std_msgs::Float32>("/xenobot/pose/d", 10);
+			node.advertise<std_msgs::Float32>("pose/d", 10);
 
 		pose_phi_publisher =
-			node.advertise<std_msgs::Float32>("/xenobot/pose/phi", 10);
+			node.advertise<std_msgs::Float32>("pose/phi", 10);
 	}
 }
 
@@ -68,9 +69,7 @@ void LaneDetector::publish_images(
 {
 	sensor_msgs::ImagePtr img_msg;
 
-	cv::Mat rgb_lane_mark_image;
-	cv::cvtColor(lane_mark_image, rgb_lane_mark_image, CV_BGR2RGB);
-	img_msg = cv_bridge::CvImage(std_msgs::Header(), "8UC3", rgb_lane_mark_image).toImageMsg();
+	img_msg = cv_bridge::CvImage(std_msgs::Header(), "rgb8", lane_mark_image).toImageMsg();
 
 	marked_image_publisher.publish(img_msg);
 
@@ -78,16 +77,16 @@ void LaneDetector::publish_images(
 		return;
 	}
 
-	img_msg = cv_bridge::CvImage(std_msgs::Header(), "8UC1", canny_image).toImageMsg();
+	img_msg = cv_bridge::CvImage(std_msgs::Header(), "mono8", canny_image).toImageMsg();
 	canny_img_publisher.publish(img_msg);
 
-	img_msg = cv_bridge::CvImage(std_msgs::Header(), "8UC1", outer_threshold_image).toImageMsg();
+	img_msg = cv_bridge::CvImage(std_msgs::Header(), "mono8", outer_threshold_image).toImageMsg();
 	outer_threshold_img_publisher.publish(img_msg);
 
-	img_msg = cv_bridge::CvImage(std_msgs::Header(), "8UC1", inner_threshold_image).toImageMsg();
+	img_msg = cv_bridge::CvImage(std_msgs::Header(), "mono8", inner_threshold_image).toImageMsg();
 	inner_threshold_img_publisher.publish(img_msg);
 
-	img_msg = cv_bridge::CvImage(std_msgs::Header(), "8UC3", bird_view_image).toImageMsg();
+	img_msg = cv_bridge::CvImage(std_msgs::Header(), "rgb8", bird_view_image).toImageMsg();
 	bird_view_img_publisher.publish(img_msg);
 }
 
@@ -635,8 +634,8 @@ bool LaneDetector::lane_estimate(cv::Mat& raw_image, float& final_d, float& fina
 
 	/* Hough transform */
 	vector<Vec4f> outer_cv_lines, inner_cv_lines;
-	cv::HoughLinesP(outer_bitwise_and_image, outer_cv_lines, 1, CV_PI / 180, HOUGH_THRESHOLD, 50, 5);	
-	cv::HoughLinesP(inner_bitwise_and_image, inner_cv_lines, 1, CV_PI / 180, HOUGH_THRESHOLD, 50, 5);	
+	cv::HoughLinesP(outer_bitwise_and_image, outer_cv_lines, 1, CV_PI / 180, HOUGH_THRESHOLD, 25, 5);	
+	cv::HoughLinesP(inner_bitwise_and_image, inner_cv_lines, 1, CV_PI / 180, HOUGH_THRESHOLD, 25, 5);	
 
 	/* Convert to xeno segment and do the side detection */
 	vector<segment_t> outer_xeno_lines, inner_xeno_lines;
@@ -701,7 +700,15 @@ bool LaneDetector::lane_estimate(cv::Mat& raw_image, float& final_d, float& fina
 		//ROS message
 		segment.d = d_i;
 		segment.phi = phi_i;
-		segment.color = 0; //WHITE
+		//segment.color = 0; //WHITE
+                if(outer_xeno_lines.at(i).side == LEFT_EDGE) {
+                        segment.color = 0;
+                }
+                else if(outer_xeno_lines.at(i).side == RIGHT_EDGE) {
+                        segment.color = 3;
+                } else {
+                        segment.color = 5;
+                }
 		segments_msg.segments.push_back(segment);
 		//ROS_INFO("d:%f phi:%f", d_i, phi_i);
 #endif
@@ -736,7 +743,15 @@ bool LaneDetector::lane_estimate(cv::Mat& raw_image, float& final_d, float& fina
 		//ROS message
 		segment.d = d_i;
 		segment.phi = phi_i;
-		segment.color = 0; //WHITE
+		if(inner_xeno_lines.at(i).side == LEFT_EDGE) {
+			segment.color = 1;
+		}
+		else if(inner_xeno_lines.at(i).side == RIGHT_EDGE) {
+			segment.color = 4;
+		} else {
+			segment.color = 5;
+		}
+		//segment.color = 1; //YELLOW
 		segments_msg.segments.push_back(segment);
 		//ROS_INFO("d:%f phi:%f", d_i, phi_i);
 #endif
@@ -898,12 +913,13 @@ bool LaneDetector::generate_vote(segment_t& lane_segment, float& d,
 	Point2f offset_vector = n_hat;
 
 	float steady_bias = 4; //cm
+	float steady_bias_w = 1.7;
 
 	if(color == WHITE) {
 		if(lane_segment.side == RIGHT_EDGE) {
-			offset_vector *= -(W / 2) - L_W;
+			offset_vector *= -(W / 2) - L_W - steady_bias_w;
 		} else {
-			offset_vector *= -(W / 2);
+			offset_vector *= -(W / 2) - steady_bias_w;
 		}
 	} else if(color == YELLOW) {
 		if(lane_segment.side == LEFT_EDGE) {
